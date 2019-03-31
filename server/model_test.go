@@ -5,17 +5,20 @@ import (
 )
 
 func TestPlayMove(t *testing.T) {
-	board := [3][3]string{
+	game := Game{board: [3][3]string{
 		{empty, empty, empty},
 		{empty, empty, empty},
 		{empty, empty, empty},
+	},
+		nextToPlay: cross,
 	}
-	playMove(&board, 1, 1, cross)
-	if board[1][1] != cross {
+	game.playMove(1, 1)
+	if game.board[1][1] != cross {
 		t.Errorf("Board not updated after move correctly")
 	}
-	playMove(&board, 1, 2, nought)
-	if board[1][2] != nought {
+	game.nextPlayer()
+	game.playMove(1, 2)
+	if game.board[1][2] != nought {
 		t.Errorf("Board not updated after move correctly")
 	}
 }
@@ -66,7 +69,8 @@ func TestWinnerCheck(t *testing.T) {
 		}
 
 		for _, board := range winningBoards {
-			winner := checkForWinner(board, player)
+			game := Game{board: board, nextToPlay: player}
+			winner := game.checkForWinner()
 			if !winner {
 				t.Errorf("Board should be a winner but wasn't\n" + renderBoard(board))
 			}
@@ -129,54 +133,60 @@ func TestNotWinnerCheck(t *testing.T) {
 	}
 
 	for _, board := range notWinningBoards {
-		winner := checkForWinner(board, cross)
-		if winner {
+		game := Game{board: board, nextToPlay: cross}
+		crossWinner := game.checkForWinner()
+		game = Game{board: board, nextToPlay: nought}
+		noughtWinner := game.checkForWinner()
+		if crossWinner || noughtWinner {
 			t.Errorf("Board should not be a winner but was\n" + renderBoard(board))
 		}
 	}
 }
 
 func TestValidMoves(t *testing.T) {
-	board :=[3][3]string{
+	game := Game{board: [3][3]string{
 		{cross, empty, empty},
 		{empty, nought, empty},
 		{empty, empty, empty},
-	}
+	}}
 
-	invalidMoveErr := checkValidMove(board, 0, 1)
+	invalidMoveErr := game.checkValidMove(0, 1)
 	if invalidMoveErr != nil {
 		t.Errorf("Move should be valid but wasn't")
 	}
 
-	invalidMoveErr = checkValidMove(board, 1, 0)
+	invalidMoveErr = game.checkValidMove( 1, 0)
 	if invalidMoveErr != nil {
 		t.Errorf("Move should be valid but wasn't")
 	}
 }
 
 func TestInvalidMoves(t *testing.T) {
-	board :=[3][3]string{
+	game := Game{board: [3][3]string{
 		{cross, empty, empty},
 		{empty, nought, empty},
 		{empty, empty, empty},
-	}
+	}}
 
-	invalidMoveErr := checkValidMove(board, 0, 0)
+	invalidMoveErr := game.checkValidMove(0, 0)
 	if invalidMoveErr == nil {
 		t.Errorf("Move should be invalid but wasn't")
 	}
 
-	invalidMoveErr = checkValidMove(board, 1, 1)
+	invalidMoveErr = game.checkValidMove( 1, 1)
 	if invalidMoveErr == nil {
 		t.Errorf("Move should be invalid but wasn't")
 	}
 }
 
 func TestNextPlayer(t *testing.T) {
-	if nextPlayer(cross) != nought {
+	game := Game{nextToPlay:cross}
+	game.nextPlayer()
+	if game.nextToPlay != nought {
 		t.Errorf("The player after cross should be nought")
 	}
-	if nextPlayer(nought) != cross {
+	game.nextPlayer()
+	if game.nextToPlay != cross {
 		t.Errorf("The player after nought should be cross")
 	}
 }
