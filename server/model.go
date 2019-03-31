@@ -1,64 +1,70 @@
 package main
 
-import "errors"
+import (
+	"errors"
+	"log"
+)
 
 const nought = "0"
 const cross = "X"
 const empty = " "
 
 type Game struct {
-	board      [3][3]string
-	nextToPlay string
+	Board      [3][3]string `json:""`
+	NextToPlay string       `json:""`
 	moveCount  int
-	winner     string
-	finished   bool
+	Winner     string `json:",omitempty"`
+	Finished   bool   `json:""`
 }
 
 var ErrInvalidMoveAlreadyPlayed = errors.New("type: location already played")
-var ErrGameFinished = errors.New("type: game finished")
+var ErrGameFinished = errors.New("type: game Finished")
 
 func NewGame() *Game {
-	return &Game{board: [3][3]string{
+	return &Game{Board: [3][3]string{
 		{empty, empty, empty},
 		{empty, empty, empty},
 		{empty, empty, empty},
 	},
 		moveCount:  0,
-		nextToPlay: cross,
+		NextToPlay: cross,
 	}
 }
 
 func (game *Game) nextPlayer() {
-	if game.nextToPlay == cross {
-		game.nextToPlay = nought
+	if game.NextToPlay == cross {
+		game.NextToPlay = nought
 	} else {
-		game.nextToPlay = cross
+		game.NextToPlay = cross
 	}
 }
 
 func (game *Game) playMove(row int, column int) bool {
+	currentPlayer := game.NextToPlay
 	// update the board
-	game.board[row][column] = game.nextToPlay
-	// increase move count
+	game.Board[row][column] = currentPlayer
 	game.moveCount = game.moveCount + 1
-	winner := game.checkForWinner()
+	log.Printf("Move %d was player %v at %d,%d", game.moveCount, currentPlayer, row, column)
 	// check to see if the game is over
+	winner := game.checkForWinner()
+	game.nextPlayer()
 	if winner {
-		game.winner = game.nextToPlay
-		game.finished = true
+		log.Printf("Winner found.")
+		game.Winner = currentPlayer
+		game.Finished = true
 	}
 	if game.moveCount == 9 {
-		game.finished = true
+		log.Printf("Board filled with no Winner.")
+		game.Finished = true
 	}
-	return game.finished
+	return game.Finished
 }
 
 func (game Game) checkForWinner() bool {
 	// check to see if someone has won
 	// since we do this every turn we only need to check if the player who just moved (currentPlayer) won
-	board := &game.board
-	currentPlayer := game.nextToPlay
-	// check for horizontal and vertical lines
+	board := &game.Board
+	currentPlayer := game.NextToPlay
 	for i := 0; i < 3; i++ {
 		rowWin := true
 		columnWin := true
@@ -82,10 +88,10 @@ func (game Game) checkForWinner() bool {
 }
 
 func (game Game) checkValidMove(row int, column int) error {
-	if game.board[row][column] != empty {
+	if game.Board[row][column] != empty {
 		return ErrInvalidMoveAlreadyPlayed
 	}
-	if game.finished {
+	if game.Finished {
 		return ErrGameFinished
 	}
 	return nil
