@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"github.com/gorilla/mux"
 	"log"
 	"net/http"
@@ -9,9 +10,18 @@ import (
 	"sync"
 )
 
+type GameStore struct {
+	sync.Mutex
+	games []*RemoteGame
+}
+
 type RemoteGame struct {
 	sync.Mutex
 	game *Game
+}
+
+type GameId struct {
+	Id int `json:""`
 }
 
 type Move struct {
@@ -20,11 +30,28 @@ type Move struct {
 	Player string `json:""`
 }
 
-func (remoteGame *RemoteGame) play(w http.ResponseWriter, req *http.Request) {
+var ErrGameNotFound = errors.New("type: game not found")
+
+func (gameStore *GameStore) play(w http.ResponseWriter, req *http.Request) {
 	log.Printf("received move request %v", req)
-	// lock the game so we don't get problems
+	// lock the game store so we don't get problems
+	gameStore.Lock()
+	// get the game that is being played
+	remoteGame, err := gameStore.getGame(req)
+
+	if err != nil {
+		log.Printf("Move submitted for non-existant game %v", req)
+		http.Error(w, "Game not found", 404)
+		// don't forget to unlock the global store
+		gameStore.Unlock()
+		return
+	}
+
+	// lock the game
 	remoteGame.Lock()
 	defer remoteGame.Unlock()
+	// now that we have the specific game and locked it we can release the global store
+	gameStore.Unlock()
 
 	game := remoteGame.game
 	var m Move
@@ -37,7 +64,7 @@ func (remoteGame *RemoteGame) play(w http.ResponseWriter, req *http.Request) {
 	// read the json body
 	decoder := json.NewDecoder(req.Body)
 	decoder.DisallowUnknownFields() // don't succeed if we get spurious fields
-	err := decoder.Decode(&m)
+	err = decoder.Decode(&m)
 	if err != nil {
 		log.Printf("could not decode request %v", req)
 		http.Error(w, err.Error(), 400)
@@ -70,26 +97,69 @@ func (remoteGame *RemoteGame) play(w http.ResponseWriter, req *http.Request) {
 	}
 }
 
-func (remoteGame RemoteGame) getState(w http.ResponseWriter, req *http.Request) {
+func (gameStore *GameStore) getState(w http.ResponseWriter, req *http.Request) {
 
-	// lock the game so we don't get problems
+	// lock the store
+	gameStore.Lock()
+	defer gameStore.Unlock()
+	remoteGame, err := gameStore.getGame(req)
+
+	// return the game state
+	if err != nil {
+		log.Printf("Status requested for non-existant game, %v", req)
+		http.Error(w, "Game not found", 404)
+		return
+	}
+
+	// lock the game
 	remoteGame.Lock()
 	defer remoteGame.Unlock()
 
-	// return the game state
-	err := json.NewEncoder(w).Encode(remoteGame.game)
+	err = json.NewEncoder(w).Encode(remoteGame.game)
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 	}
 }
 
-func startServer(port int) {
+func (gameStore *GameStore) newGame(w http.ResponseWriter, req *http.Request) {
 	game := NewGame()
-	store := RemoteGame{game: game}
+	remoteGame := RemoteGame{game: game}
+
+	gameStore.Lock()
+	defer gameStore.Unlock()
+
+	newGames := append(gameStore.games, &remoteGame)
+
+	gameStore.games = newGames
+
+	newGameId := GameId{Id: len(gameStore.games)}
+
+	err := json.NewEncoder(w).Encode(newGameId)
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+	}
+}
+
+func (gameStore *GameStore) getGame(req *http.Request) (*RemoteGame, error) {
+
+	// this is a helper function so locking the mutex should be handled by the caller
+	vars := mux.Vars(req)
+	gameId, _ := strconv.Atoi(vars["id"])
+
+	if gameId > len(gameStore.games) {
+		return nil, ErrGameNotFound
+	}
+
+	return gameStore.games[gameId-1], nil
+}
+
+func startServer(port int) {
+	gameStore := GameStore{}
 
 	r := mux.NewRouter()
-	r.HandleFunc("/get", store.getState).Methods("GET")
-	r.HandleFunc("/move", store.play).Methods("POST")
+	r.HandleFunc("/games/{id:[0-9]+}", gameStore.getState).Methods("GET")
+	r.HandleFunc("/games/{id:[0-9]+}/move", gameStore.play).Methods("POST")
+	r.HandleFunc("/games", gameStore.newGame).Methods("POST")
 	http.Handle("/", r)
 
 	log.Printf("Going to listen on port %d\n", port)

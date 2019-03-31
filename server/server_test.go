@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/gorilla/mux"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -11,15 +12,58 @@ import (
 func TestGetHandler(t *testing.T) {
 
 	game := NewGame()
-	store := RemoteGame{game: game}
+	store := createGameStoreWithGame(game)
 
-	req := createRequest(t, "GET", "/get", nil)
+	req := createRequest(t, "GET", "/game/1/get", nil)
 
 	rr := httptest.NewRecorder()
 
-	handler := http.HandlerFunc(store.getState)
+	router := mux.NewRouter()
+	router.HandleFunc("/game/{id:[0-9]+}/get", store.getState)
+	router.ServeHTTP(rr, req)
 
-	handler.ServeHTTP(rr, req)
+	if status := rr.Code; status != http.StatusOK {
+		t.Errorf("handler didn't return ok: got %v", status)
+	}
+
+	jsonResponse := &Game{}
+	unmarshalResponse(t, rr, jsonResponse)
+
+	expected := Game{
+		Board: [3][3]string{
+			{empty, empty, empty},
+			{empty, empty, empty},
+			{empty, empty, empty},
+		},
+		NextToPlay: cross,
+		Finished:   false,
+	}
+	if *jsonResponse != expected {
+		t.Errorf("handler returned incorrect body: got %v wanted %v",
+			jsonResponse, expected)
+	}
+}
+
+func TestCreateAndGet(t *testing.T) {
+
+	router := mux.NewRouter()
+
+	store := &GameStore{}
+
+	router.HandleFunc("/new", store.newGame)
+	router.HandleFunc("/game/{id:[0-9]+}/get", store.getState)
+
+	req := createRequest(t, "GET", "/new", nil)
+
+	rr := httptest.NewRecorder()
+
+	router.ServeHTTP(rr, req)
+
+	req = createRequest(t, "GET", "/game/1/get", nil)
+
+	rr = httptest.NewRecorder()
+
+	router.ServeHTTP(rr, req)
 
 	if status := rr.Code; status != http.StatusOK {
 		t.Errorf("handler didn't return ok: got %v", status)
@@ -46,15 +90,15 @@ func TestGetHandler(t *testing.T) {
 func TestPlayMoveHandlerBadRequest(t *testing.T) {
 
 	game := NewGame()
-	store := RemoteGame{game: game}
+	store := createGameStoreWithGame(game)
 
-	req := createRequest(t, "POST", "/play", game)
+	req := createRequest(t, "POST", "/game/1/move", game)
 
 	rr := httptest.NewRecorder()
 
-	handler := http.HandlerFunc(store.play)
-
-	handler.ServeHTTP(rr, req)
+	router := mux.NewRouter()
+	router.HandleFunc("/game/{id:[0-9]+}/move", store.play)
+	router.ServeHTTP(rr, req)
 
 	if status := rr.Code; status != http.StatusBadRequest {
 		t.Errorf("handler didn't return badRequest: got %v", status)
@@ -64,7 +108,7 @@ func TestPlayMoveHandlerBadRequest(t *testing.T) {
 func TestPlayMoveHandlerWrongPlayer(t *testing.T) {
 
 	game := NewGame()
-	store := RemoteGame{game: game}
+	store := createGameStoreWithGame(game)
 
 	move := &Move{
 		Row:    0,
@@ -72,13 +116,13 @@ func TestPlayMoveHandlerWrongPlayer(t *testing.T) {
 		Player: nought,
 	}
 
-	req := createRequest(t, "POST", "/play", move)
+	req := createRequest(t, "POST", "/game/1/move", move)
 
 	rr := httptest.NewRecorder()
 
-	handler := http.HandlerFunc(store.play)
-
-	handler.ServeHTTP(rr, req)
+	router := mux.NewRouter()
+	router.HandleFunc("/game/{id:[0-9]+}/move", store.play)
+	router.ServeHTTP(rr, req)
 
 	if status := rr.Code; status != http.StatusForbidden {
 		t.Errorf("handler didn't return forbidden: got %v", status)
@@ -89,7 +133,7 @@ func TestPlayMoveHandlerAlreadyUsedLocation(t *testing.T) {
 
 	game := NewGame()
 	game.Board[0][0] = cross
-	store := RemoteGame{game: game}
+	store := createGameStoreWithGame(game)
 
 	move := &Move{
 		Row:    0,
@@ -97,13 +141,13 @@ func TestPlayMoveHandlerAlreadyUsedLocation(t *testing.T) {
 		Player: nought,
 	}
 
-	req := createRequest(t, "POST", "/play", move)
+	req := createRequest(t, "POST", "/game/1/move", move)
 
 	rr := httptest.NewRecorder()
 
-	handler := http.HandlerFunc(store.play)
-
-	handler.ServeHTTP(rr, req)
+	router := mux.NewRouter()
+	router.HandleFunc("/game/{id:[0-9]+}/move", store.play)
+	router.ServeHTTP(rr, req)
 
 	if status := rr.Code; status != http.StatusForbidden {
 		t.Errorf("handler didn't return forbidden: got %v", status)
@@ -114,7 +158,7 @@ func TestPlayMoveHandlerGameFinished(t *testing.T) {
 
 	game := NewGame()
 	game.Finished = true
-	store := RemoteGame{game: game}
+	store := createGameStoreWithGame(game)
 
 	move := &Move{
 		Row:    0,
@@ -122,13 +166,13 @@ func TestPlayMoveHandlerGameFinished(t *testing.T) {
 		Player: nought,
 	}
 
-	req := createRequest(t, "POST", "/play", move)
+	req := createRequest(t, "POST", "/game/1/move", move)
 
 	rr := httptest.NewRecorder()
 
-	handler := http.HandlerFunc(store.play)
-
-	handler.ServeHTTP(rr, req)
+	router := mux.NewRouter()
+	router.HandleFunc("/game/{id:[0-9]+}/move", store.play)
+	router.ServeHTTP(rr, req)
 
 	if status := rr.Code; status != http.StatusForbidden {
 		t.Errorf("handler didn't return forbidden: got %v", status)
@@ -138,20 +182,21 @@ func TestPlayMoveHandlerGameFinished(t *testing.T) {
 func TestPlayMoveHandler(t *testing.T) {
 
 	game := NewGame()
-	store := RemoteGame{game: game}
+	store := createGameStoreWithGame(game)
 
 	move := &Move{
 		Row:    0,
 		Column: 0,
 		Player: cross,
 	}
-	req := createRequest(t, "POST", "/play", move)
+
+	req := createRequest(t, "POST", "/game/1/move", move)
 
 	rr := httptest.NewRecorder()
 
-	handler := http.HandlerFunc(store.play)
-
-	handler.ServeHTTP(rr, req)
+	router := mux.NewRouter()
+	router.HandleFunc("/game/{id:[0-9]+}/move", store.play)
+	router.ServeHTTP(rr, req)
 
 	if status := rr.Code; status != http.StatusOK {
 		t.Errorf("handler didn't return ok: got %v", status)
@@ -174,6 +219,13 @@ func TestPlayMoveHandler(t *testing.T) {
 		t.Errorf("handler returned incorrect body: got %v wanted %+v",
 			rr.Body.String(), expected)
 	}
+}
+
+func createGameStoreWithGame(game *Game) *GameStore {
+
+	remoteGame := &RemoteGame{game: game}
+
+	return &GameStore{games: []*RemoteGame{remoteGame}}
 }
 
 func createRequest(t *testing.T, method string, url string, v interface{}) *http.Request {
